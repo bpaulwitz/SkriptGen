@@ -1,0 +1,6 @@
+# ignore testing stuff
+testing.py
+TestData
+
+# python cache
+__pycache__
