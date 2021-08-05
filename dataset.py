@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import pandas as pd
 
-import util as ut
+import sentence_tokens as st
 
 from torch.utils.data import Dataset
 from torchvision import transforms
@@ -72,11 +72,11 @@ class Dataset_ScriptGen(Dataset):
                     all_scripts.append(os.path.join(self.script_dir, file))
             
             # create encoding
-            self.encoding = ut.create_encoding(all_scripts)
+            self.encoding = st.create_sentence_encoding(all_scripts)
 
         # if encoding is given by a file path (str)
         elif type(encoding) is str:
-            self.encoding = ut.load_encoding(encoding)
+            self.encoding = st.load_sentence_encoding(encoding)
 
         # if encoding is neither None, a string or a dict
         elif type(encoding) is not dict:
@@ -104,12 +104,10 @@ class Dataset_ScriptGen(Dataset):
 
         # path to script -> second item in the csv file
         script_path = os.path.join(self.script_dir, self.csv.iloc[index, 1])
-        encoded_script_blanked = ut.encode_script(script_path, self.encoding)
-        encoded_script_numbers = ut.encode_script(script_path, self.encoding, False)
-        target_numbers = ut.get_numbers_encoded_script(encoded_script_blanked, encoded_script_numbers, self.encoding)
+        encoded_script, target_numbers = st.encode_sentence_script(script_path, self.encoding)
 
         # create sample
-        sample = {'render': render, 'target_corpus': np.array(encoded_script_blanked, dtype="int32"), 'target_numbers': np.array(target_numbers, dtype="float")}
+        sample = {'render': render, 'target_corpus': np.array(encoded_script, dtype="int32"), 'target_numbers': np.array(target_numbers, dtype="float")}
 
         # add transform if necessary
         if self.transform:

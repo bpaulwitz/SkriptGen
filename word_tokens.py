@@ -28,6 +28,7 @@ char_token_dictionary = {
 }
 
 int_token_dictionary = {
+    '0' : "__ZERO__",
     '1' : "__ONE__",
     '2' : "__TWO__",
     '3' : "__THREE__",
@@ -42,6 +43,7 @@ token_SOS = "_STARTOFSENTENCE_"
 token_EOS = "_ENDOFSENTENCE_"
 token_PAD = "_PADDING_"
 token_FLOAT = "_FLOAT_"
+token_INT = "_INT_"
 
 def is_float(word: str) -> bool:
     """
