@@ -36,7 +36,7 @@ class ToTensor(object):
         render, target_corpus, target_numbers = sample['render'], sample['target_corpus'], sample['target_numbers']
         # numpy image: H x W x C
         # torch image: C X H X W
-        render = render.transpose((2, 0, 1))
+        render = render.transpose((2, 0, 1)).astype(np.float32)
 
         return {'render': torch.from_numpy(render), 'target_corpus': torch.from_numpy(target_corpus), 'target_numbers': torch.from_numpy(target_numbers)}
 
