@@ -14,6 +14,8 @@ from resnet import ResNetSkriptGen, BasicBlock
 
 import sentence_tokens as st
 
+from tmp import DecoderV2, DecoderV2Float
+
 class CorpusDecoder(nn.Module):
     def __init__(
             self,
@@ -38,8 +40,11 @@ class CorpusDecoder(nn.Module):
         self.scale = torch.sqrt(torch.FloatTensor([self.hidden_size])).to(device)
         self.pos_embedding = nn.Embedding(max_length_encoding, self.hidden_size).to(device)
 
-        decoder_layer = nn.TransformerDecoderLayer(d_model=self.hidden_size, nhead=num_heads, dropout=dropout).to(device)
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers).to(device)
+        #decoder_layer = nn.TransformerDecoderLayer(d_model=self.hidden_size, nhead=num_heads, dropout=dropout).to(device)
+        
+        #self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers).to(device)
+        self.decoder = DecoderV2(hidden_size, hidden_size, num_layers, num_heads, hidden_size * 2, dropout, device, max_length_encoding)
+
         self.fc_out = nn.Linear(self.hidden_size, vocab_size).to(device)
 
         print("\nCreated CorpusDecoder with:\n" + 
@@ -51,6 +56,10 @@ class CorpusDecoder(nn.Module):
 
 
     def forward(self, target: Tensor, memory: Tensor, target_mask: Tensor = None):
+        memory = memory[..., None].permute(0, 2, 1)
+        x = self.decoder(trg=target, enc_src=memory, trg_mask=target_mask, src_mask=None)
+        return self.fc_out(x[0])
+
         #Memory has to get the shape [Batch size, Sequence length, Feature number]
         memory = memory[..., None].permute(0, 2, 1)
         memory = torch.tile(memory, (1, target.shape[1], 1))
@@ -90,8 +99,10 @@ class FloatListDecoder(nn.Module):
 
         self.scale = torch.sqrt(torch.FloatTensor([self.hidden_size])).to(device)
 
-        decoder_layer = nn.TransformerDecoderLayer(d_model=self.hidden_size, nhead=num_heads, dropout=dropout).to(device)
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers).to(device)
+        #decoder_layer = nn.TransformerDecoderLayer(d_model=self.hidden_size, nhead=num_heads, dropout=dropout).to(device)
+        #self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers).to(device)
+        self.decoder = DecoderV2Float(hidden_size, hidden_size, num_layers, num_heads, hidden_size * 2, dropout, device, max_len_floats)
+
         self.fc_out = nn.Linear(self.hidden_size, 1).to(device)
 
         print("\nCreated FloatListDecoder with:\n" + 
@@ -106,6 +117,13 @@ class FloatListDecoder(nn.Module):
         return target
 
     def forward(self, target: Tensor, memory: Tensor, target_mask: Tensor = None):
+        target_mask = target_mask[..., None].permute(0, 3, 1, 2)
+        memory = memory.permute(0, 2, 1)
+        target_mask = torch.tile(target_mask, ())
+        x = self.decoder(trg=target, enc_src=memory, trg_mask=target_mask, src_mask=None)
+        return self.fc_out(x[0])
+
+
         memory = memory.permute(0, 2, 1)
         memory = torch.tile(memory, (1, target.shape[1], 1))
 
@@ -148,7 +166,7 @@ class SkriptGen(nn.Module):
         else:
             hidden_size = (max_len_encoding // num_heads) * num_heads
         '''
-        hidden_size = 512
+        hidden_size = 256
 
         self.encoder = ResNetSkriptGen(BasicBlock, [1, 2, 2], hidden_size, device=device)
 
@@ -177,9 +195,12 @@ class SkriptGen(nn.Module):
         self.corpus_decoder.apply(xavier_init)
         self.numbers_decoder.apply(xavier_init)
 
-    def make_trg_mask(self, trg):
+    def make_trg_mask(self, trg, padding=False):
         #trg = [batch size, trg len]
-        trg_pad_mask = (trg != self.encoding[st.token_PAD]).unsqueeze(1).unsqueeze(2)
+        if padding:
+            trg_pad_mask = (trg != self.encoding[st.token_PAD]).unsqueeze(1).unsqueeze(2).to(self.device)
+        else:
+            trg_pad_mask = torch.ones(len(trg)).bool().unsqueeze(1).unsqueeze(2).to(self.device)
         #trg_pad_mask = [batch size, 1, 1, trg len]
         trg_len = trg.shape[1]
         trg_sub_mask = torch.tril(torch.ones((trg_len, trg_len), device = self.device)).bool()
@@ -217,7 +238,8 @@ class SkriptGen(nn.Module):
 
         #TODO encoded image mit encoded script für numbers decoder konkatenieren
 
-        encoded_script = self.corpus_decoder(target_script, encoded_image, target_mask=self.generate_square_subsequent_mask(len(target_script)).to(self.device))
+        #encoded_script = self.corpus_decoder(target_script, encoded_image, target_mask=self.generate_square_subsequent_mask(len(target_script)).to(self.device))
+        encoded_script = self.corpus_decoder(target_script, encoded_image, target_mask=self.make_trg_mask(target_script, True).to(self.device))
         
         # add 0 feature to the encoded image
         image_memory = encoded_image[..., None]
@@ -238,6 +260,6 @@ class SkriptGen(nn.Module):
             script_memory, 
             torch.zeros((image_memory.shape[0], 2* self.hidden_size - image_memory.shape[1] - script_memory.shape[1], image_memory.shape[2])).to(self.device)], dim=1)
         
-        script_floats = self.numbers_decoder(target_numbers, memory_enc_nbrs, target_mask=self.generate_square_subsequent_mask(len(target_numbers)).to(self.device))
+        script_floats = self.numbers_decoder(target_numbers, memory_enc_nbrs, target_mask=self.make_trg_mask(target_numbers).to(self.device))
         
         return encoded_script, script_floats

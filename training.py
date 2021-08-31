@@ -116,13 +116,13 @@ if __name__ == "__main__":
 
     print("Creating dataset for training...")
     dataset_train = Dataset_ScriptGen(csv_path_train, dataset_train_path, encoding, max_len_encoding, max_len_floats, transforms.Compose([
-            Rescale(224, 224),
+            Rescale(256, 256),
             ToTensor()
     ]))
 
     print("Creating dataset for validation...")
     dataset_test = Dataset_ScriptGen(csv_path_test, dataset_test_path, encoding, max_len_encoding, max_len_floats, transforms.Compose([
-            Rescale(224, 224),
+            Rescale(256, 256),
             ToTensor()
     ]))
 
@@ -136,6 +136,11 @@ if __name__ == "__main__":
     test_data = DataLoader(dataset_test, batch_size, True)
 
     model = SkriptGen(dataset_train.encoding, dataset_train.max_len_encoding, dataset_train.max_len_floats, 8, device)
+
+    '''
+    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+    exit()
+    #'''
 
     model.init_weights()
 
