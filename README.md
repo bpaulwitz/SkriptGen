@@ -23,4 +23,4 @@
     - [x] Transformer Decoder for script corpus
     - [x] Transformer Decoder for floating point values
 - [x] Dataset
-- [ ] Create `setup.py` to install necessary libraries
+- [x] Create `setup.py` to install necessary libraries

@@ -33,14 +33,8 @@ def load_checkpoint(model_path, device, is_eval=True):
     return model.to(device=device), global_step
 
 def write_scalar(csv_path: str, tensorboard_writer: SummaryWriter, global_step: int, value):
-    if csv_path == 'val_nbrs.csv':
-        with open(csv_path, 'r') as csv_file:
-            print(csv_path, csv_file.read())
     with open(csv_path, 'a') as csv_file:
         csv_file.write("{},{}\n".format(global_step, value))
-    if csv_path == 'val_nbrs.csv':
-        with open(csv_path, 'r') as csv_file:
-            print(csv_path, csv_file.read())
     tensorboard_writer.add_scalar(csv_path, value, global_step)
 
 def validate_model(model, dataset, device, global_step, writer, out_val_script_path, out_val_numbers_path):
@@ -69,7 +63,7 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
 
         validation_loss_script += loss_script.item()
         validation_loss_numbers += loss_numbers.item()
-        print("VAL\tIteration: {}\tL_Corpus: {:.5f}\tL_Numbers: {:.5f}".format(iteration, loss_script.item(), loss_numbers.item()))
+        print("{:.2f}%".format(iteration / len(dataset) * 100))
 
         # for testing
         #if iteration > 2:
@@ -206,4 +200,4 @@ if __name__ == "__main__":
 
         print('Validating...')
         validate_model(model, test_data, device, global_step, writer, out_val_script_path, out_val_numbers_path)
-        save_checkpoint(model, "SkriptGen-Ep" + str(e) + "-It" + str(iteration), model_folder, 0, True)
+        save_checkpoint(model, "SkriptGen-Ep" + str(e), model_folder, 0, True)
