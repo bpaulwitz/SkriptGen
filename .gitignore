@@ -4,3 +4,9 @@ TestData
 
 # python cache
 __pycache__
+
+# training results
+models/*
+graphs/*
+*.csv
+*.txt

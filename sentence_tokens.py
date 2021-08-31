@@ -96,30 +96,40 @@ def create_sentence_encoding(script_paths: list) -> dict:
     """
     create an sentence encoding based on a list of scripts
     @param script_paths: list of path to scripts where to create the encoding from
-    @return: encoding dictionary
+    @return: encoding dictionary, maximum length of encoded scripts and maximum length of floating point numbers
     """
     encoding_tokens = [token_SOS, token_PAD, token_EOS]
     encoding = {}
+    max_length_encoding = 0
+    max_length_floats = 0
 
     for path in script_paths:
-        lines, _ = script_to_sentence_tokens(path)
+        lines, nbrs = script_to_sentence_tokens(path)
         
         # add all tokens which are not yet in the list
         for l in lines:
             if l not in encoding_tokens:
                 encoding_tokens.append(l)
+
+        # check if maximum length of encoding or the floating point numbers increased (additional space for start and end token)
+        if len(lines) + 2 > max_length_encoding:
+            max_length_encoding = len(lines) + 2
+        if len(nbrs) + 2 > max_length_floats:
+            max_length_floats = len(nbrs) + 2
         
     # fill dictionary with (value : index) from list, so every token is represented by an index
     for index, token in enumerate(encoding_tokens):
         encoding[token] = index
-    return encoding
 
-def encode_sentence_script(file_path: str, encoding: dict, batch_length: int = None):
+    return encoding, max_length_encoding, max_length_floats
+
+def encode_sentence_script(file_path: str, encoding: dict, batch_length_skript: int = None, batch_length_numbers: int = None):
     """
     encode a script with the given sentence encoding set
     @param file_path: path to script (including file name)
     @param encoding: encoding dictionary
-    @param batch_length: if set, add encoded padding tokens until the batch_length is reached
+    @param batch_length_skript: if set, add encoded padding tokens to skript until the batch_length_skript is reached
+    @param batch_length_numbers: if set, add encoded padding tokens to number list until the batch_length_numbers is reached
     @return: the list of encoded tokens and the list of the numbers
     """
     encoded = [encoding[token_SOS]]
@@ -129,21 +139,26 @@ def encode_sentence_script(file_path: str, encoding: dict, batch_length: int = N
         encoded.append(encoding[t])
 
     # fill until batch_length if specified
-    if batch_length is not None and len(encoded) + 1 < batch_length:
-        additional_padding_len = batch_length - len(encoded) - 1
+    if batch_length_skript is not None and len(encoded) + 1 < batch_length_skript:
+        additional_padding_len = batch_length_skript - len(encoded) - 1
         encoded += [encoding[token_PAD]] * additional_padding_len
+    if batch_length_numbers is not None and len(numbers) + 1 < batch_length_numbers:
+        additional_padding_len = batch_length_numbers - len(numbers) - 1
+        numbers += [0] * additional_padding_len
     
     encoded.append(encoding[token_EOS])
     
     return encoded, numbers
 
-def save_sentence_encoding(encoding: dict, file_path: str):
+def save_sentence_encoding(encoding: dict, max_len_encoding: int, max_len_floats: int, file_path: str):
     """
-    save the encoding dict to file
+    save the encoding dict, the maximum length of an encoded script and the maximum length of floats for a script to file
     @param encoding: encoding dictionary
+    @param max_len_encoding: maximum length of the encoded script
+    @param max_len_floats: maximum length of the floating point list for the encoded script
     @param file_path: path (including file name) where the encoding should be saved
     """
-    file_content = ""
+    file_content = "max_len_encoding -- " + str(max_len_encoding) + "\nmax_len_floats -- " + str(max_len_floats) + "\n\n"
     for token in dict(sorted(encoding.items(), key=lambda item: item[1])):
         file_content += token + " : " + str(encoding[token]) + '\n'
 
@@ -151,19 +166,25 @@ def save_sentence_encoding(encoding: dict, file_path: str):
         # write everything to file (except the last new line)
         encoding_file.write(file_content[:-1])
 
-def load_sentence_encoding(file_path: str) -> dict:
+def load_sentence_encoding(file_path: str):
     """
     load an encoding from a file path
     @param file_path: path to the encoding file
-    @return: the encoding dictionary
+    @return: the encoding dictionary, maximum length of an encoded script and maximum length of a float list for an encoded script
     """
     encoding = {}
+    max_len_encoding = None
+    max_len_floats = None
     with open(file_path, 'r') as encoding_file:
-        for line in encoding_file.readlines():
+        lines = encoding_file.readlines()
+        max_len_encoding = int(lines[0].split(' -- ')[1])
+        max_len_floats = int(lines[1].split(' -- ')[1])
+        for line_number in range(3, len(lines)):
+            line = lines[line_number]
             token_value = line.split(' : ')
             encoding[token_value[0]] = int(token_value[1])
 
-    return encoding
+    return encoding, max_len_encoding, max_len_floats
 
 def decode_encoded_script(encoded_script: list, numbers: list, encoding: dict) -> str:
     """
@@ -173,9 +194,9 @@ def decode_encoded_script(encoded_script: list, numbers: list, encoding: dict) -
     @param encoding: the encoding dictionary that is used to decode the script
     @return: the decoded script
     """
-    # confirm token_SOS at the beginning, token_EOS at the end
+    # confirm token_SOS at the beginning
     assert(encoded_script[0] == encoding[token_SOS])
-    assert(encoded_script[-1] == encoding[token_EOS])
+    #assert(encoded_script[-1] == encoding[token_EOS])
 
     # create decoding
     decoding = decoding_from_encoding(encoding)
@@ -194,8 +215,6 @@ def decode_encoded_script(encoded_script: list, numbers: list, encoding: dict) -
 
     # replace floats
     for n in numbers:
-        if not is_int(n):
-            print(n)
-            decoded_script = decoded_script.replace(token_FLOAT, n, 1)
+        decoded_script = decoded_script.replace(token_FLOAT, str(n), 1)
 
     return decoded_script
