@@ -7,8 +7,8 @@ import re
 
 # precompile regex to find numbers
 # taken from https://stackoverflow.com/questions/45001775/find-all-floats-or-ints-in-a-given-string/45001796
-# [sign] (digit [dot] digit* | dot digit+) [exp] [sign] digit+
-re_find_numbers = re.compile("[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
+# [sign] (digit+ [dot] digit+ | dot digit+) [exp] [sign] digit+
+re_find_numbers = re.compile("[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 def read_script_lines_no_comments(script_path: str) -> str:
     """

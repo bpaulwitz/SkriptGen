@@ -18,6 +18,7 @@ import numpy as np
 import csv
 from inference import testModel
 from pathlib import Path
+from math import cos, pi
 
 #see https://github.com/tunz/transformer-pytorch/blob/e7266679f0b32fd99135ea617213f986ceede056/utils/utils.py#L34
 def save_checkpoint(model, name, filepath, global_step, is_best):
@@ -152,6 +153,13 @@ def evaluate(model, dataset, device, encoding_file, output_folder):
     model.eval()
     testModel(model, data, device, encoding_file, output_folder)
 
+def cos_annealing(iteration):
+    annealing_rate = 250
+    max_lr = 3e-4
+    min_lr = 1e-6
+    upper_lr = max_lr - min_lr
+    return upper_lr / 2.0 * (cos(1.0 / annealing_rate * pi * (iteration % annealing_rate)) + 1) + min_lr
+
 if __name__ == "__main__":
     #csv_path = "TestData/dataset.csv"
     #dataset_train_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Train"
@@ -170,6 +178,7 @@ if __name__ == "__main__":
     encoding, max_len_encoding, max_len_floats = None, None, None
     epochs = 20
     batch_size = 4
+    cosine_annealing = True
     writer = SummaryWriter(log_dir="graphs")
 
     out_training_script_path = "train_script.csv"
@@ -243,6 +252,11 @@ if __name__ == "__main__":
             targets_script = sample_batched['target_corpus'].to(device)
             targets_numbers = sample_batched['target_numbers'].to(device)
             optimizer.zero_grad()
+
+            if cosine_annealing:
+                for g in optimizer.param_groups:
+                    g['lr'] = cos_annealing(iteration)
+
 
             predicted_script, predicted_numbers = model(sources, targets_script[:, :-1], targets_numbers[:, :-1])
 

@@ -231,7 +231,6 @@ class SkriptGen(nn.Module):
 
     def forward_Numbers_Decoder(self, target: Tensor, image_memory: Tensor, script_memory: Tensor, target_mask = None) -> Tensor:
         # add 0 feature to the encoded image
-        print(script_memory.shape)
         image_memory = image_memory[..., None]
         image_memory = torch.cat([image_memory, torch.zeros(image_memory.shape).to(self.device)], dim=2)
 
@@ -239,7 +238,6 @@ class SkriptGen(nn.Module):
         script_memory = torch.cat([script_memory, torch.ones(script_memory.shape).to(self.device)], dim=2)
 
         # concatenate
-        print(self.hidden_size, image_memory.shape[1], script_memory.shape[1])
         memory_enc_nbrs = torch.cat([
             image_memory, 
             script_memory, 
