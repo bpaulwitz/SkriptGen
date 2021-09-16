@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import numpy as np
 import csv
+from inference import testModel
+from pathlib import Path
 
 #see https://github.com/tunz/transformer-pytorch/blob/e7266679f0b32fd99135ea617213f986ceede056/utils/utils.py#L34
 def save_checkpoint(model, name, filepath, global_step, is_best):
@@ -143,21 +145,30 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
     write_scalar(out_val_numbers_path, writer, global_step, validation_loss_numbers)
     print(validation_loss_script, validation_loss_numbers)
 
+def evaluate(model, dataset, device, encoding_file, output_folder):
+    data = DataLoader(dataset, 1, True)
+    # create folder if not exists
+    Path(output_folder).mkdir(parents=True, exist_ok=True)
+    model.eval()
+    testModel(model, data, device, encoding_file, output_folder)
+
 if __name__ == "__main__":
     #csv_path = "TestData/dataset.csv"
     #dataset_train_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Train"
     #dataset_test_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Test"
     dataset_train_path = "/root/Datasets/House/Train"
     dataset_test_path = "/root/Datasets/House/Test"
+    dataset_eval_path = "/root/Datasets/House/Test"
 
     csv_path_train = os.path.join(dataset_train_path, "dataset.csv")
     csv_path_test = os.path.join(dataset_test_path, "dataset.csv")
+    csv_path_eval = os.path.join(dataset_test_path, "dataset_small.csv")
 
     #model_folder = os.path.join(dataset_train_path, "models")
     model_folder = "models"
-    #encoding_file = "encoding.txt"
-    encoding_file, encoding, max_len_encoding, max_len_floats = None, None, None, None
-    epochs = 10
+    encoding_file = "encoding.txt"
+    encoding, max_len_encoding, max_len_floats = None, None, None
+    epochs = 20
     batch_size = 4
     writer = SummaryWriter(log_dir="graphs")
 
@@ -186,15 +197,26 @@ if __name__ == "__main__":
             ToTensor()
     ]))
 
+    encoding, max_len_encoding, max_len_floats = dataset_train.encoding, dataset_train.max_len_encoding, dataset_train.max_len_floats
+
+    # save encoding from training -> use it for evaluation later
+    st.save_sentence_encoding(dataset_train.encoding, dataset_train.max_len_encoding, dataset_train.max_len_floats, encoding_file)
+
     print("Creating dataset for validation...")
     dataset_test = Dataset_ScriptGen(csv_path_test, dataset_test_path, encoding, max_len_encoding, max_len_floats, transforms.Compose([
             Rescale(256, 256),
             ToTensor()
     ]))
 
+    print("Creating dataset for evaluation...")
+    dataset_eval = Dataset_ScriptGen(csv_path_eval, dataset_eval_path, encoding, max_len_encoding, max_len_floats, transforms.Compose([
+            Rescale(256, 256),
+            ToTensor()
+    ]))
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # for testing on cpu
-    device = 'cpu'
+    #device = 'cpu'
     
     print("Using device:", device)
 
@@ -211,7 +233,7 @@ if __name__ == "__main__":
     loss_fn_numbers = nn.MSELoss()
 
     #optimizer = Adam(params=model.parameters(), lr=0.00001, weight_decay=0.00008)
-    optimizer = Adam(params=model.parameters(), lr=5e-4, weight_decay=0.00008)
+    optimizer = Adam(params=model.parameters(), lr=5e-5, weight_decay=0.00008)
 
     global_step = 0
     for e in range(epochs):
@@ -250,9 +272,9 @@ if __name__ == "__main__":
             #    "/home/baldur/Dataset/gradients/grad_flow_ep_{}_it_{}.svg".format(e, iteration), 
             #    "Gradient flow at iteration {}".format(iteration))
             if e <= 1: #write gradients in first two epochs
-                print("writing gradients...")
+                #print("writing gradients...")
                 write_grad_flow(model.named_parameters(),
-                    "/home/baldur/Dataset/gradients/grad_flow_ep_{}_it_{}.csv".format(e, iteration),
+                    "/root/ScriptGen/gradients/grad_flow_ep_{}_it_{}.csv".format(e, iteration),
                     "Gradient flow at iteration {}".format(iteration))
 
             optimizer.step()
@@ -265,3 +287,6 @@ if __name__ == "__main__":
         print('Validating...')
         validate_model(model, test_data, device, global_step, writer, out_val_script_path, out_val_numbers_path)
         save_checkpoint(model, "SkriptGen-Ep" + str(e), model_folder, 0, True)
+
+        print('Evaluating...')
+        evaluate(model, dataset_eval, device, encoding_file, './evaluate/epoch-{}'.format(e))

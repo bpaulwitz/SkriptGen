@@ -47,12 +47,15 @@ def testModel(model, data, device, encoding_file, output_folder):
             #if prediction == trg_field.vocab.stoi[trg_field.eos_token]:
                 #break
 
+        # create tensor from output_indices_corpus list
+        corpus_output = torch.Tensor(output_indices_corpus)[None, ...].to(device)
         print("decoding numbers")
         for j in range(max_length_numbers):
 
             trg_tensor = torch.LongTensor(output_indices_numbers).unsqueeze(0).to(device)
             trg_mask = model.generate_square_subsequent_mask(len(trg_tensor)).to(device)
 
+            '''
             ### --------------------- put this in the model!!! -----------------------------
             # add 0 feature to the encoded image
             image_memory = enc_src[..., None]
@@ -69,9 +72,11 @@ def testModel(model, data, device, encoding_file, output_folder):
                 script_memory, 
                 torch.zeros((image_memory.shape[0], 1024 - image_memory.shape[1] - script_memory.shape[1], image_memory.shape[2])).to(device)], dim=1)
             ### ------------------------------------------------------------------------------
+            '''
 
             with torch.no_grad():
-                output = model.forward_Numbers_Decoder(trg_tensor, memory_enc_nbrs, trg_mask)
+                #output = model.forward_Numbers_Decoder(trg_tensor, memory_enc_nbrs, trg_mask)
+                output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output, model.generate_square_subsequent_mask(len(trg_tensor)).to(device))
 
             prediction = output[0,-1,0].item()
             iterator += 1
