@@ -164,6 +164,7 @@ if __name__ == "__main__":
     #csv_path = "TestData/dataset.csv"
     #dataset_train_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Train"
     #dataset_test_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Test"
+    #dataset_eval_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Test"
     dataset_train_path = "/root/Datasets/House/Train"
     dataset_test_path = "/root/Datasets/House/Test"
     dataset_eval_path = "/root/Datasets/House/Test"
@@ -178,7 +179,7 @@ if __name__ == "__main__":
     encoding, max_len_encoding, max_len_floats = None, None, None
     epochs = 20
     batch_size = 4
-    cosine_annealing = True
+    cosine_annealing = False
     writer = SummaryWriter(log_dir="graphs")
 
     out_training_script_path = "train_script.csv"
@@ -232,7 +233,14 @@ if __name__ == "__main__":
     train_data = DataLoader(dataset_train, batch_size, True)
     test_data = DataLoader(dataset_test, batch_size, True)
 
-    model = SkriptGen(dataset_train.encoding, dataset_train.max_len_encoding, dataset_train.max_len_floats, 8, device)
+    model = SkriptGen(
+        encoding = dataset_train.encoding, 
+        max_len_encoding = dataset_train.max_len_encoding, 
+        max_len_floats = dataset_train.max_len_floats,
+        hidden_size = 512,
+        pretrained_resnet = True,
+        device = device,
+        )
     print("amount of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
 
@@ -289,6 +297,7 @@ if __name__ == "__main__":
                 #print("writing gradients...")
                 write_grad_flow(model.named_parameters(),
                     "/root/ScriptGen/gradients/grad_flow_ep_{}_it_{}.csv".format(e, iteration),
+                    #"./gradients/grad_flow_ep_{}_it_{}.csv".format(e, iteration),
                     "Gradient flow at iteration {}".format(iteration))
 
             optimizer.step()
