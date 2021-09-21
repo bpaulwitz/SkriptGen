@@ -47,6 +47,7 @@ class CorpusDecoder(nn.Module):
             num_layers: int = 6,
             hidden_size: int = 256, # context vector (hidden state)
             dropout: float = 0.1,
+            fixed_pe: bool = False,
             device: str = 'cpu',
             ) -> None:
         super().__init__()
@@ -61,10 +62,13 @@ class CorpusDecoder(nn.Module):
         self.token_embedding = nn.Embedding(vocab_size, self.hidden_size).to(device)
         self.scale = torch.sqrt(torch.FloatTensor([self.hidden_size])).to(device)
 
-        # learned positional encoding
-        #self.pos_embedding = nn.Embedding(max_length_encoding, self.hidden_size).to(device)
         # fixed positional encoding
-        self.pos_embedding = PositionalEncoding(d_model = hidden_size, dropout = dropout, max_len = max_length_encoding).to(device)
+        if fixed_pe:
+            self.pos_embedding = PositionalEncoding(d_model = hidden_size, dropout = dropout, max_len = max_length_encoding).to(device)
+        # learned positional encoding
+        else:
+            self.pos_embedding = nn.Embedding(max_length_encoding, self.hidden_size).to(device)
+        self.fixed_pe = fixed_pe
 
         decoder_layer = nn.TransformerDecoderLayer(d_model=self.hidden_size, nhead=num_heads, dropout=dropout).to(device)
         
@@ -97,11 +101,13 @@ class CorpusDecoder(nn.Module):
         batch_size = x.shape[0]
         length = x.shape[1]
         
-        # learned positional encoding
-        #pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
-        #x += self.pos_embedding(pos_emb_tensor)
         # fixed positional encoding
-        x += self.pos_embedding(x)
+        if self.fixed_pe:
+            x += self.pos_embedding(x)
+        # learned positional encoding
+        else:
+            pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
+            x += self.pos_embedding(pos_emb_tensor)
         
         x = self.decoder(tgt=x, memory=memory, tgt_mask=target_mask)
         x = self.fc_out(x)
@@ -116,6 +122,7 @@ class FloatListDecoder(nn.Module):
             num_layers: int = 6,
             hidden_size: int = 256, # context vector (hidden state)
             dropout: float = 0.1,
+            fixed_pe: bool = False,
             device: str = 'cpu',
             ) -> None:
         super().__init__()
@@ -126,10 +133,13 @@ class FloatListDecoder(nn.Module):
 
         assert(hidden_size % num_heads == 0)
 
-        # learned positional encoding
-        #self.pos_embedding = nn.Embedding(max_len_floats, self.hidden_size).to(device)
         # fixed positional encoding
-        self.pos_embedding = PositionalEncoding(d_model = hidden_size, dropout = dropout, max_len = max_len_floats).to(device)
+        if fixed_pe:
+            self.pos_embedding = PositionalEncoding(d_model = hidden_size, dropout = dropout, max_len = max_len_floats).to(device)
+        # learned positional encoding
+        else:
+            self.pos_embedding = nn.Embedding(max_len_floats, self.hidden_size).to(device)
+        self.fixed_pe = fixed_pe
 
         self.scale = torch.sqrt(torch.FloatTensor([self.hidden_size])).to(device)
 
@@ -170,11 +180,14 @@ class FloatListDecoder(nn.Module):
         batch_size = x.shape[0]
         length = x.shape[1]
 
-        # learnedpositional encoding
-        #pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
-        #x += self.pos_embedding(pos_emb_tensor)
         # fixed positional encoding
-        x += self.pos_embedding(x)
+        if self.fixed_pe:
+            x += self.pos_embedding(x)
+        # learned positional encoding
+        else:
+            pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
+            x += self.pos_embedding(pos_emb_tensor)
+
         
         x = self.decoder(tgt=x, memory=memory, tgt_mask=target_mask)
         x = self.fc_out(x)
@@ -189,6 +202,7 @@ class SkriptGen(nn.Module):
         max_len_encoding: int,
         max_len_floats: int,
         hidden_size: int = 256,
+        fixed_pe: bool = False,
         device='cpu',
         pretrained_resnet = False,
     ) -> None:
@@ -222,11 +236,13 @@ class SkriptGen(nn.Module):
             max_length_encoding=self.max_len_encoding,
             hidden_size=hidden_size,
             num_layers=8,
+            fixed_pe=fixed_pe,
             device=device)
         self.numbers_decoder = FloatListDecoder(
             max_len_floats=max_len_floats,
             hidden_size=hidden_size * 2,
             num_layers=8,
+            fixed_pe=fixed_pe,
             device=device)
 
         self.hidden_size = hidden_size

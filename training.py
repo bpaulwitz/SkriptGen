@@ -239,6 +239,7 @@ if __name__ == "__main__":
         max_len_floats = dataset_train.max_len_floats,
         hidden_size = 256,
         pretrained_resnet = True,
+        fixed_pe = False,
         device = device,
         )
     print("amount of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
