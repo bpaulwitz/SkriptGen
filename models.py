@@ -157,7 +157,6 @@ class FloatListDecoder(nn.Module):
             )
 
     def token_embedding(self, target: Tensor) -> Tensor:
-        print("before embedding", target.shape)
         return target
 
     def forward(self, target: Tensor, memory: Tensor, target_mask: Tensor = None):
@@ -193,6 +192,45 @@ class FloatListDecoder(nn.Module):
         x = self.fc_out(x)
 
         return x
+
+class FloatListDecoderMLP(nn.Module):
+    def __init__(
+            self,
+            max_len_floats: int,
+            hidden_size: int = 256, # context vector (hidden state)
+            dropout: float = 0.1,
+            fixed_pe: bool = False,
+            device: str = 'cpu',
+            ) -> None:
+        super().__init__()
+
+        self.dropout = dropout
+        self.device = device
+        self.hidden_size = hidden_size
+
+        self.lin1 = nn.Linear(hidden_size, hidden_size).to(self.device)
+        self.lin2 = nn.Linear(hidden_size, hidden_size).to(self.device)
+        self.lin3 = nn.Linear(hidden_size, hidden_size).to(self.device)
+        self.lin4 = nn.Linear(hidden_size, hidden_size).to(self.device)
+        self.lin5 = nn.Linear(hidden_size, max_len_floats).to(self.device)
+
+        self.drop1 = nn.Dropout(dropout).to(self.device)
+        self.drop2 = nn.Dropout(dropout).to(self.device)
+        self.drop3 = nn.Dropout(dropout).to(self.device)
+        self.drop4 = nn.Dropout(dropout).to(self.device)
+
+    def forward(self, x):
+        residual = x
+        x = self.drop1(F.relu(self.lin1(x)))
+        x = self.drop2(F.relu(self.lin2(x)))
+        x = self.drop3(F.relu(self.lin3(x)))
+        x = self.drop4(F.relu(self.lin4(x)))
+
+        x += residual
+
+        x = self.lin5(x)
+
+        return x
     
 
 class SkriptGen(nn.Module):
@@ -203,6 +241,7 @@ class SkriptGen(nn.Module):
         max_len_floats: int,
         hidden_size: int = 256,
         fixed_pe: bool = False,
+        numbers_mlp: bool = False,
         device='cpu',
         pretrained_resnet = False,
     ) -> None:
@@ -238,12 +277,22 @@ class SkriptGen(nn.Module):
             num_layers=8,
             fixed_pe=fixed_pe,
             device=device)
-        self.numbers_decoder = FloatListDecoder(
-            max_len_floats=max_len_floats,
-            hidden_size=hidden_size * 2,
-            num_layers=8,
-            fixed_pe=fixed_pe,
-            device=device)
+
+
+        if numbers_mlp:
+            self.numbers_decoder = FloatListDecoderMLP(
+                max_len_floats=max_len_floats,
+                hidden_size=hidden_size * 2,
+                device=device)
+        else:
+            self.numbers_decoder = FloatListDecoder(
+                max_len_floats=max_len_floats,
+                hidden_size=hidden_size * 2,
+                num_layers=8,
+                fixed_pe=fixed_pe,
+                device=device)
+            
+        self.numbers_mlp = numbers_mlp
 
         self.hidden_size = hidden_size
 
@@ -295,21 +344,30 @@ class SkriptGen(nn.Module):
         return self.corpus_decoder(target, encoded_image, target_mask)
 
     def forward_Numbers_Decoder(self, target: Tensor, image_memory: Tensor, script_memory: Tensor, target_mask = None) -> Tensor:
-        # add 0 feature to the encoded image
-        image_memory = image_memory[..., None]
-        image_memory = torch.cat([image_memory, torch.zeros(image_memory.shape).to(self.device)], dim=2)
+        if self.numbers_mlp:
+            # concatenate
+            memory_enc_nbrs = torch.cat([
+                image_memory, 
+                script_memory, 
+                torch.zeros((image_memory.shape[0], 2* self.hidden_size - image_memory.shape[1] - script_memory.shape[1])).to(self.device)], dim=1)
 
-        script_memory = script_memory[..., None]
-        script_memory = torch.cat([script_memory, torch.ones(script_memory.shape).to(self.device)], dim=2)
+            return self.numbers_decoder(memory_enc_nbrs)
+        else:
+            # add 0 feature to the encoded image
+            image_memory = image_memory[..., None]
+            image_memory = torch.cat([image_memory, torch.zeros(image_memory.shape).to(self.device)], dim=2)
 
-        # concatenate
-        memory_enc_nbrs = torch.cat([
-            image_memory, 
-            script_memory, 
-            torch.zeros((image_memory.shape[0], 2* self.hidden_size - image_memory.shape[1] - script_memory.shape[1], image_memory.shape[2])).to(self.device)], dim=1)
+            script_memory = script_memory[..., None]
+            script_memory = torch.cat([script_memory, torch.ones(script_memory.shape).to(self.device)], dim=2)
 
-        return self.numbers_decoder(target, memory_enc_nbrs, target_mask=target_mask.to(self.device))
-        
+            # concatenate
+            memory_enc_nbrs = torch.cat([
+                image_memory, 
+                script_memory, 
+                torch.zeros((image_memory.shape[0], 2* self.hidden_size - image_memory.shape[1] - script_memory.shape[1], image_memory.shape[2])).to(self.device)], dim=1)
+
+            return self.numbers_decoder(target, memory_enc_nbrs, target_mask=target_mask.to(self.device))
+
 
     def forward(self, image: Tensor, target_script: Tensor, target_numbers: Tensor, enc_nbrs_on_target_encoding: bool = True) -> Tensor:
         encoded_image = self.encoder(image)
@@ -323,7 +381,10 @@ class SkriptGen(nn.Module):
             script_memory = target_script
         else:
             script_memory = encoded_script.argmax(2)
+
+
         script_floats = self.forward_Numbers_Decoder(target_numbers, encoded_image, script_memory, self.generate_square_subsequent_mask(len(target_numbers)).to(self.device))
         #script_floats = self.numbers_decoder(target_numbers, memory_enc_nbrs, target_mask=self.make_trg_mask(target_numbers).to(self.device))
+
 
         return encoded_script, script_floats

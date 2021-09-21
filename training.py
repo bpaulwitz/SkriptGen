@@ -111,12 +111,20 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
     validation_loss_script = 0.0
     validation_loss_numbers = 0.0
 
+    loss_fn_corpus = nn.CrossEntropyLoss()
+    loss_fn_numbers = nn.MSELoss()
+
     for iteration, sample_batched in enumerate(dataset):
         sources = sample_batched['render'].to(device)
         targets_script = sample_batched['target_corpus'].to(device)
         targets_numbers = sample_batched['target_numbers'].to(device)
 
-        predicted_script, predicted_numbers = model(sources, targets_script[:, :-1], targets_numbers[:, :-1])
+        enc_img = model.forward_Image_Encoder(sources)
+        predicted_script = model.forward_Corpus_Decoder(targets_script[:, :-1], enc_img, target_mask=model.generate_square_subsequent_mask(len(targets_script[:, :-1])).to(device))
+        if model.numbers_mlp:
+            predicted_numbers = model.forward_Numbers_Decoder(None, enc_img, targets_script)
+        else:
+            predicted_numbers = model.forward_Numbers_Decoder(targets_numbers[:, :-1], enc_img, targets_script[:, :-1], model.generate_square_subsequent_mask(len(targets_numbers[:, :-1])).to(device))
 
         output_dim_script = predicted_script.shape[-1]
         output_dim_numbers = predicted_numbers.shape[-1]
@@ -124,8 +132,14 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
         pred_script = predicted_script.contiguous().view(-1, output_dim_script)
         trg_script = targets_script[:, 1:].contiguous().view(-1)
 
-        pred_numbers = predicted_numbers.contiguous().view(-1, output_dim_numbers)[:,0]
-        trg_numbers = targets_numbers[:, 1:].contiguous().view(-1)
+        if model.numbers_mlp:
+            pred_numbers = predicted_numbers.contiguous().view(-1)
+            trg_numbers = targets_numbers.contiguous().view(-1)
+            trg_numbers = torch.cat([trg_numbers, torch.zeros((pred_numbers.shape[0] - trg_numbers.shape[0])).to(device)], dim=0)
+
+        else:
+            pred_numbers = predicted_numbers.contiguous().view(-1, output_dim_numbers)[:,0]
+            trg_numbers = targets_numbers[:, 1:].contiguous().view(-1)
 
         loss_script = loss_fn_corpus(pred_script, trg_script)
         loss_numbers = loss_fn_numbers(pred_numbers, trg_numbers)
@@ -180,6 +194,7 @@ if __name__ == "__main__":
     epochs = 10
     batch_size = 4
     cosine_annealing = False
+    temporary_freeze_corpus_decoder = True #TODO undo this when finished with this test
     writer = SummaryWriter(log_dir="graphs")
 
     out_training_script_path = "train_script.csv"
@@ -237,9 +252,10 @@ if __name__ == "__main__":
         encoding = dataset_train.encoding, 
         max_len_encoding = dataset_train.max_len_encoding, 
         max_len_floats = dataset_train.max_len_floats,
-        hidden_size = 256,
-        pretrained_resnet = True,
+        hidden_size = 512,
+        pretrained_resnet = False,
         fixed_pe = False,
+        numbers_mlp = True,
         device = device,
         )
     print("amount of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
@@ -247,8 +263,13 @@ if __name__ == "__main__":
 
     model.init_weights()
 
+    #'''
     loss_fn_corpus = nn.CrossEntropyLoss()
     loss_fn_numbers = nn.MSELoss()
+    '''
+    loss_fn_corpus = nn.CrossEntropyLoss(reduction="sum")
+    loss_fn_numbers = nn.MSELoss(reduction="sum")
+    #'''
 
     #optimizer = Adam(params=model.parameters(), lr=0.00001, weight_decay=0.00008)
     optimizer = Adam(params=model.parameters(), lr=5e-5, weight_decay=0.00008)
@@ -266,8 +287,12 @@ if __name__ == "__main__":
                 for g in optimizer.param_groups:
                     g['lr'] = cos_annealing(iteration)
 
-
-            predicted_script, predicted_numbers = model(sources, targets_script[:, :-1], targets_numbers[:, :-1])
+            enc_img = model.forward_Image_Encoder(sources)
+            predicted_script = model.forward_Corpus_Decoder(targets_script[:, :-1], enc_img, target_mask=model.generate_square_subsequent_mask(len(targets_script[:, :-1])).to(device))
+            if model.numbers_mlp:
+                predicted_numbers = model.forward_Numbers_Decoder(None, enc_img, targets_script)
+            else:
+                predicted_numbers = model.forward_Numbers_Decoder(targets_numbers[:, :-1], enc_img, targets_script[:, :-1], model.generate_square_subsequent_mask(len(targets_numbers[:, :-1])).to(device))
 
             output_dim_script = predicted_script.shape[-1]
             output_dim_numbers = predicted_numbers.shape[-1]
@@ -275,8 +300,14 @@ if __name__ == "__main__":
             pred_script = predicted_script.contiguous().view(-1, output_dim_script)
             trg_script = targets_script[:, 1:].contiguous().view(-1)
 
-            pred_numbers = predicted_numbers.contiguous().view(-1, output_dim_numbers)[:,0]
-            trg_numbers = targets_numbers[:, 1:].contiguous().view(-1)
+            if model.numbers_mlp:
+                pred_numbers = predicted_numbers.contiguous().view(-1)
+                trg_numbers = targets_numbers.contiguous().view(-1)
+                trg_numbers = torch.cat([trg_numbers, torch.zeros((pred_numbers.shape[0] - trg_numbers.shape[0])).to(device)], dim=0)
+
+            else:
+                pred_numbers = predicted_numbers.contiguous().view(-1, output_dim_numbers)[:,0]
+                trg_numbers = targets_numbers[:, 1:].contiguous().view(-1)
 
             loss_script = loss_fn_corpus(pred_script, trg_script)
             loss_numbers = loss_fn_numbers(pred_numbers, trg_numbers)
@@ -294,7 +325,7 @@ if __name__ == "__main__":
             #plot_grad_flow_h(model.named_parameters(), 
             #    "/home/baldur/Dataset/gradients/grad_flow_ep_{}_it_{}.svg".format(e, iteration), 
             #    "Gradient flow at iteration {}".format(iteration))
-            if e <= 1: #write gradients in first two epochs
+            if e < 1: #write gradients in first epoch
                 #print("writing gradients...")
                 write_grad_flow(model.named_parameters(),
                     "/root/ScriptGen/gradients/grad_flow_ep_{}_it_{}.csv".format(e, iteration),

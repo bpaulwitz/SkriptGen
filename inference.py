@@ -50,44 +50,54 @@ def testModel(model, data, device, encoding_file, output_folder):
         # create tensor from output_indices_corpus list
         corpus_output = torch.Tensor(output_indices_corpus)[None, ...].to(device)
         print("decoding numbers")
-        for j in range(max_length_numbers):
-
-            trg_tensor = torch.LongTensor(output_indices_numbers).unsqueeze(0).to(device)
-            trg_mask = model.generate_square_subsequent_mask(len(trg_tensor)).to(device)
-
-            '''
-            ### --------------------- put this in the model!!! -----------------------------
-            # add 0 feature to the encoded image
-            image_memory = enc_src[..., None]
-            image_memory = torch.cat([image_memory, torch.zeros(image_memory.shape).to(device)], dim=2)
-
-            # add 1 feature to the target script
-            script_memory = torch.tensor(output_indices_corpus)[..., None].to(device)
-            script_memory = script_memory[None, ...] # batch
-            script_memory = torch.cat([script_memory, torch.ones(script_memory.shape).to(device)], dim=2)
-
-            # concatenate
-            memory_enc_nbrs = torch.cat([
-                image_memory, 
-                script_memory, 
-                torch.zeros((image_memory.shape[0], 1024 - image_memory.shape[1] - script_memory.shape[1], image_memory.shape[2])).to(device)], dim=1)
-            ### ------------------------------------------------------------------------------
-            '''
-
+        if model.numbers_mlp:
             with torch.no_grad():
-                #output = model.forward_Numbers_Decoder(trg_tensor, memory_enc_nbrs, trg_mask)
-                output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output, model.generate_square_subsequent_mask(len(trg_tensor)).to(device))
+                output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output)
+                output_indices_numbers = output.tolist()[0]
 
-            prediction = output[0,-1,0].item()
-            iterator += 1
-            if j < len(targets_numbers):
-                ground_truth = targets_numbers[j]
-            else:
-                ground_truth = 0.0
-            print("{:.2f}% -> Prediction:\t{:.4f}\tGroundtruth:\t{:.4f}\tAbs:\t{:.4f}".format(iterator / (max_length_encoding + max_length_numbers) * 100, prediction, ground_truth, abs(prediction-ground_truth)))
+            for i in range(len(targets_numbers)):
+                pred = output_indices_numbers[i]
+                ground_truth = targets_numbers[i]
+                print("{:.2f}% -> Prediction:\t{:.3f}\tGroundtruth:\t{:.4f}\tAbs:\t{:.4f}".format(i / len(output_indices_numbers) * 100, pred, ground_truth, abs(pred - ground_truth)))
+        else:
+            for j in range(max_length_numbers):
+
+                trg_tensor = torch.LongTensor(output_indices_numbers).unsqueeze(0).to(device)
+                trg_mask = model.generate_square_subsequent_mask(len(trg_tensor)).to(device)
+
+                '''
+                ### --------------------- put this in the model!!! -----------------------------
+                # add 0 feature to the encoded image
+                image_memory = enc_src[..., None]
+                image_memory = torch.cat([image_memory, torch.zeros(image_memory.shape).to(device)], dim=2)
+
+                # add 1 feature to the target script
+                script_memory = torch.tensor(output_indices_corpus)[..., None].to(device)
+                script_memory = script_memory[None, ...] # batch
+                script_memory = torch.cat([script_memory, torch.ones(script_memory.shape).to(device)], dim=2)
+
+                # concatenate
+                memory_enc_nbrs = torch.cat([
+                    image_memory, 
+                    script_memory, 
+                    torch.zeros((image_memory.shape[0], 1024 - image_memory.shape[1] - script_memory.shape[1], image_memory.shape[2])).to(device)], dim=1)
+                ### ------------------------------------------------------------------------------
+                '''
+
+                with torch.no_grad():
+                    #output = model.forward_Numbers_Decoder(trg_tensor, memory_enc_nbrs, trg_mask)
+                    output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output, model.generate_square_subsequent_mask(len(trg_tensor)).to(device))
+
+                prediction = output[0,-1,0].item()
+                iterator += 1
+                if j < len(targets_numbers):
+                    ground_truth = targets_numbers[j]
+                else:
+                    ground_truth = 0.0
+                print("{:.2f}% -> Prediction:\t{:.4f}\tGroundtruth:\t{:.4f}\tAbs:\t{:.4f}".format(iterator / (max_length_encoding + max_length_numbers) * 100, prediction, ground_truth, abs(prediction-ground_truth)))
 
 
-            output_indices_numbers.append(prediction)
+                output_indices_numbers.append(prediction)
 
         with open(os.path.join(output_folder, "output_" + str(iteration) + ".py"), "w+") as out_file:
             out_file.write(st.decode_encoded_script(output_indices_corpus, output_indices_numbers, encoder))
