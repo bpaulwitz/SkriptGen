@@ -17,6 +17,27 @@ import sentence_tokens as st
 
 #from tmp import DecoderV2, DecoderV2Float
 
+#from pytorch tutorial https://pytorch.org/tutorials/beginner/transformer_tutorial.html
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe = torch.zeros(max_len, 1, d_model)
+        pe[:, 0, 0::2] = torch.sin(position * div_term)
+        pe[:, 0, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: Tensor, shape [seq_len, batch_size, embedding_dim]
+        """
+        x = x + self.pe[:x.size(0)]
+        return self.dropout(x)
+
 class CorpusDecoder(nn.Module):
     def __init__(
             self,
@@ -39,7 +60,11 @@ class CorpusDecoder(nn.Module):
 
         self.token_embedding = nn.Embedding(vocab_size, self.hidden_size).to(device)
         self.scale = torch.sqrt(torch.FloatTensor([self.hidden_size])).to(device)
-        self.pos_embedding = nn.Embedding(max_length_encoding, self.hidden_size).to(device)
+
+        # learned positional encoding
+        #self.pos_embedding = nn.Embedding(max_length_encoding, self.hidden_size).to(device)
+        # fixed positional encoding
+        self.pos_embedding = PositionalEncoding(d_model = hidden_size, dropout = dropout, max_len = max_length_encoding).to(device)
 
         decoder_layer = nn.TransformerDecoderLayer(d_model=self.hidden_size, nhead=num_heads, dropout=dropout).to(device)
         
@@ -72,9 +97,12 @@ class CorpusDecoder(nn.Module):
         batch_size = x.shape[0]
         length = x.shape[1]
         
-        pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
+        # learned positional encoding
+        #pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
+        #x += self.pos_embedding(pos_emb_tensor)
+        # fixed positional encoding
+        x += self.pos_embedding(x)
         
-        x += self.pos_embedding(pos_emb_tensor)
         x = self.decoder(tgt=x, memory=memory, tgt_mask=target_mask)
         x = self.fc_out(x)
         
@@ -98,7 +126,10 @@ class FloatListDecoder(nn.Module):
 
         assert(hidden_size % num_heads == 0)
 
-        self.pos_embedding = nn.Embedding(max_len_floats, self.hidden_size).to(device)
+        # learned positional encoding
+        #self.pos_embedding = nn.Embedding(max_len_floats, self.hidden_size).to(device)
+        # fixed positional encoding
+        self.pos_embedding = PositionalEncoding(d_model = hidden_size, dropout = dropout, max_len = max_len_floats).to(device)
 
         self.scale = torch.sqrt(torch.FloatTensor([self.hidden_size])).to(device)
 
@@ -139,10 +170,11 @@ class FloatListDecoder(nn.Module):
         batch_size = x.shape[0]
         length = x.shape[1]
 
-        # positional encoding
-        pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
-        
-        x += self.pos_embedding(pos_emb_tensor)
+        # learnedpositional encoding
+        #pos_emb_tensor = torch.arange(0, length).unsqueeze(0).repeat(batch_size, 1).to(self.device)
+        #x += self.pos_embedding(pos_emb_tensor)
+        # fixed positional encoding
+        x += self.pos_embedding(x)
         
         x = self.decoder(tgt=x, memory=memory, tgt_mask=target_mask)
         x = self.fc_out(x)
@@ -176,6 +208,10 @@ class SkriptGen(nn.Module):
         if pretrained_resnet:
             self.encoder = torchvision.models.resnet18(pretrained=True).to(device)
             self.fc = nn.Linear(1000, hidden_size).to(device)
+            
+            # freeze pretrained parameters
+            for param in self.encoder.parameters():
+                param.requires_grad = False
         else:
             self.encoder = ResNetSkriptGen(BasicBlock, [1, 2, 2], hidden_size, device=device)
         

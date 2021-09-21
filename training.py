@@ -177,7 +177,7 @@ if __name__ == "__main__":
     model_folder = "models"
     encoding_file = "encoding.txt"
     encoding, max_len_encoding, max_len_floats = None, None, None
-    epochs = 20
+    epochs = 10
     batch_size = 4
     cosine_annealing = False
     writer = SummaryWriter(log_dir="graphs")
@@ -237,7 +237,7 @@ if __name__ == "__main__":
         encoding = dataset_train.encoding, 
         max_len_encoding = dataset_train.max_len_encoding, 
         max_len_floats = dataset_train.max_len_floats,
-        hidden_size = 512,
+        hidden_size = 256,
         pretrained_resnet = True,
         device = device,
         )
