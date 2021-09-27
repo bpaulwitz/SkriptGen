@@ -165,7 +165,7 @@ def evaluate(model, dataset, device, encoding_file, output_folder):
     # create folder if not exists
     Path(output_folder).mkdir(parents=True, exist_ok=True)
     model.eval()
-    testModel(model, data, device, encoding_file, output_folder)
+    return testModel(model, data, device, encoding_file, output_folder)
 
 def cos_annealing(iteration):
     annealing_rate = 250
@@ -201,6 +201,8 @@ if __name__ == "__main__":
     out_training_numbers_path = "train_nbrs.csv"
     out_val_script_path = "val_script.csv"
     out_val_numbers_path = "val_nbrs.csv"
+    out_val_accs_script_path = "val_acc_script.csv"
+    out_val_accs_nbrs_path = "val_acc_nbrs.csv"
     
     with open(out_training_script_path, 'w+') as train_script:
         train_script.write("Step,Loss\n")
@@ -210,6 +212,10 @@ if __name__ == "__main__":
         val_script.write("Step,Loss\n")
     with open(out_val_numbers_path, 'w+') as val_nbrs:
         val_nbrs.write("Step,Loss\n")
+    with open(out_val_accs_script_path, 'w+') as val_accs_scr:
+        val_accs_scr.write("Step,Loss\n")
+    with open(out_val_accs_nbrs_path, 'w+') as val_accs_nbrs:
+        val_accs_nbrs.write("Step,Loss\n")
 
     if not os.path.exists(model_folder):
         os.makedirs(model_folder)
@@ -344,4 +350,6 @@ if __name__ == "__main__":
         save_checkpoint(model, "SkriptGen-Ep" + str(e), model_folder, 0, True)
 
         print('Evaluating...')
-        evaluate(model, dataset_eval, device, encoding_file, './evaluate/epoch-{}'.format(e))
+        acc_script, acc_nbrs = evaluate(model, dataset_eval, device, encoding_file, './evaluate/epoch-{}'.format(e))
+        write_scalar(out_val_accs_script_path, writer, global_step, acc_script)
+        write_scalar(out_val_accs_nbrs_path, writer, global_step, acc_nbrs)

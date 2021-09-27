@@ -266,7 +266,9 @@ class SkriptGen(nn.Module):
             for param in self.encoder.parameters():
                 param.requires_grad = False
         else:
-            self.encoder = ResNetSkriptGen(BasicBlock, [1, 2, 2], hidden_size, device=device)
+            #self.encoder = ResNetSkriptGen(BasicBlock, [1, 2, 2], hidden_size, device=device)
+            self.encoder = torchvision.models.resnet18(pretrained=False).to(device)
+            self.fc = nn.Linear(1000, hidden_size).to(device)
         
         self.pretrained_resnet = pretrained_resnet
 
@@ -297,11 +299,6 @@ class SkriptGen(nn.Module):
         self.hidden_size = hidden_size
 
     def init_weights(self) -> None:
-        if self.pretrained_resnet:
-            nn.init.xavier_uniform_(self.fc.weight)
-        else:
-            self.encoder.init_weights()
-
         # from https://github.com/bentrevett/pytorch-seq2seq/blob/master/6%20-%20Attention%20is%20All%20You%20Need.ipynb
         def xavier_init(model):
             if hasattr(model, 'weight') and model.weight.dim() > 1:
@@ -309,6 +306,13 @@ class SkriptGen(nn.Module):
 
         self.corpus_decoder.apply(xavier_init)
         self.numbers_decoder.apply(xavier_init)
+
+        if self.pretrained_resnet:
+            nn.init.xavier_uniform_(self.fc.weight)
+        else:
+            #self.encoder.init_weights()
+            self.encoder.apply(xavier_init)
+            nn.init.xavier_uniform_(self.fc.weight)
 
     def make_trg_mask(self, trg, padding=False):
         #trg = [batch size, trg len]
@@ -336,8 +340,9 @@ class SkriptGen(nn.Module):
 
     def forward_Image_Encoder(self, x: Tensor) -> Tensor:
         encoded_image = self.encoder(x)
-        if self.pretrained_resnet:
-            encoded_image = self.fc(encoded_image)
+        #if self.pretrained_resnet:
+        #    encoded_image = self.fc(encoded_image)
+        encoded_image = self.fc(encoded_image)
         return encoded_image
 
     def forward_Corpus_Decoder(self, target: Tensor, encoded_image: Tensor, target_mask = None) -> Tensor:
@@ -371,8 +376,9 @@ class SkriptGen(nn.Module):
 
     def forward(self, image: Tensor, target_script: Tensor, target_numbers: Tensor, enc_nbrs_on_target_encoding: bool = True) -> Tensor:
         encoded_image = self.encoder(image)
-        if self.pretrained_resnet:
-            encoded_image = self.fc(encoded_image)
+        #if self.pretrained_resnet:
+        #    encoded_image = self.fc(encoded_image)
+        encoded_image = self.fc(encoded_image)
 
         encoded_script = self.corpus_decoder(target_script, encoded_image, target_mask=self.generate_square_subsequent_mask(len(target_script)).to(self.device))
         #encoded_script = self.corpus_decoder(target_script, encoded_image, target_mask=self.make_trg_mask(target_script, True).to(self.device))
