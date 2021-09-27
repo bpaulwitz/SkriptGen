@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 import sentence_tokens as st
 import os
 import shutil
+from word_tokens import token_EOS
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -105,47 +106,105 @@ def plot_grad_flow_h(named_parameters, save_as = None, title = None, file_format
         plt.savefig(save_as, format=file_format)
     plt.close()
 
-def compute_accuracy(pred_script, pred_nbrs, gt_script, gt_nbrs, numbers_epsilon = 0.01):
-    pred_script = torch.argmax(pred_script, dim=2)
-    gt_script = gt_script[:, 1:]
-    amount_samples = pred_script.shape[0]
-    len_script = pred_script.shape[1]
-    len_nbrs = min(pred_nbrs.shape[1], gt_nbrs.shape[1])
-    
-    mean_acc_script, mean_acc_nbrs = 0.0, 0.0
-    for i in range(amount_samples):
-        acc_script = 0
-        acc_nbrs = 0
+def compute_model_accuracy(model, dataset, encoding_file, device, numbers_accuracy_epsilon = 0.01):
+    data = DataLoader(dataset, 1, True)
+    encoder, max_length_encoding, max_length_numbers = st.load_sentence_encoding(encoding_file)
+    decoder = st.decoding_from_encoding(encoder)
+    model.eval()
+    mean_acc_script, mean_acc_numbers = 0.0, 0.0
+    for iteration, (sample_batched) in enumerate(data):
+        image = sample_batched['render'].to(device)
+        # get targets (as python lists) to compare with the output
+        targets_script = sample_batched['target_corpus'].to(device)[0].tolist()
+        targets_numbers = sample_batched['target_numbers'].to(device)[0].tolist()
+        iterator = 0
+        with torch.no_grad():
+            enc_src = model.forward_Image_Encoder(image)
 
-        curr_pred_script = pred_script[i]
-        curr_gt_script = gt_script[i]
+        output_indices_corpus = [int(encoder[st.token_SOS])]
+        output_indices_numbers = [0]
+        script_accuracy = 0
+        for i in range(max_length_encoding):
 
-        curr_pred_nbrs = pred_nbrs[i]
-        curr_gt_nbrs = gt_nbrs[i]
+            trg_tensor = torch.LongTensor(output_indices_corpus).unsqueeze(0).to(device)
+            trg_mask = model.generate_square_subsequent_mask(len(trg_tensor)).to(device)
 
-        for j in range(len_script):
-            if curr_pred_script[j].item() == curr_gt_script[j].item():
-                acc_script += 1
-        
-        for k in range(len_nbrs):
-            if abs(curr_pred_nbrs[k].item() - curr_gt_nbrs[k].item()) <= numbers_epsilon:
-                acc_nbrs += 1
+            with torch.no_grad():
+                output = model.forward_Corpus_Decoder(trg_tensor, enc_src, trg_mask)
 
-        for l in range(abs(pred_nbrs.shape[1] - gt_nbrs.shape[1])):
-            if abs(curr_pred_nbrs[len_nbrs + l].item()) <= numbers_epsilon:
-                acc_nbrs += 1
+            prediction = output.argmax(2)[:,-1].item()
+            iterator += 1
+            #print(output.argmax(2)[:,:])
+            if i < len(targets_script) - 1:
+                ground_truth = targets_script[i + 1]
+            else:
+                ground_truth = int(encoder[st.token_PAD])
 
-        acc_script /= len_script
-        acc_nbrs /= len_nbrs + abs(pred_nbrs.shape[1] - gt_nbrs.shape[1])
+            output_indices_corpus.append(prediction)
 
-        mean_acc_script += acc_script
-        mean_acc_nbrs += acc_nbrs
-    
-    mean_acc_script /= amount_samples
-    mean_acc_nbrs /= amount_samples
-    return mean_acc_script, mean_acc_nbrs
+            if prediction == ground_truth:
+                script_accuracy += 1
 
-def validate_model(model, dataset, device, global_step, writer, out_val_script_path, out_val_numbers_path, out_acc_script_path, out_acc_nbrs_path):
+            if prediction == encoder[token_EOS]:
+                break
+
+        script_accuracy /= len(output_indices_corpus)
+        mean_acc_script += script_accuracy
+
+        # create tensor from output_indices_corpus list
+        corpus_output = torch.Tensor(output_indices_corpus)[None, ...].to(device)
+        numbers_accuracy = 0
+        if model.numbers_mlp:
+            with torch.no_grad():
+                output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output)
+                output_indices_numbers = output.tolist()[0]
+
+            for i in range(max_length_numbers):
+                pred = output_indices_numbers[i]
+
+                if i < len(targets_numbers):
+                    ground_truth = targets_numbers[i]
+                else:
+                    ground_truth = 0.0
+                if abs(pred - ground_truth) <= numbers_accuracy_epsilon:
+                    numbers_accuracy += 1
+        else:
+            for j in range(max_length_numbers):
+
+                trg_tensor = torch.LongTensor(output_indices_numbers).unsqueeze(0).to(device)
+                trg_mask = model.generate_square_subsequent_mask(len(trg_tensor)).to(device)
+
+                with torch.no_grad():
+                    #output = model.forward_Numbers_Decoder(trg_tensor, memory_enc_nbrs, trg_mask)
+                    output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output, model.generate_square_subsequent_mask(len(trg_tensor)).to(device))
+
+                prediction = output[0,-1,0].item()
+                iterator += 1
+                if j < len(targets_numbers) - 1:
+                    ground_truth = targets_numbers[j + 1]
+                else:
+                    ground_truth = 0.0
+
+                if abs(prediction - ground_truth) <= numbers_accuracy_epsilon:
+                    numbers_accuracy += 1
+
+                output_indices_numbers.append(prediction)
+
+        numbers_accuracy /= max_length_numbers
+        mean_acc_numbers += numbers_accuracy
+
+        print("{:.2f}%".format(iteration / len(dataset) * 100))
+
+    mean_acc_script /= len(dataset)
+    mean_acc_numbers /= len(dataset)
+
+    print("Accuracy (script): {:.4f}".format(mean_acc_script))
+    print("Accuracy (numbers): {:.4f}".format(mean_acc_numbers))
+
+
+    return mean_acc_script, mean_acc_numbers
+
+def validate_model(model, dataset, device, global_step, writer, out_val_script_path, out_val_numbers_path):
     model.eval()
     validation_loss_script = 0.0
     validation_loss_numbers = 0.0
@@ -153,7 +212,6 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
     loss_fn_corpus = nn.CrossEntropyLoss()
     loss_fn_numbers = nn.MSELoss()
 
-    mean_acc_script, mean_acc_nbrs = 0.0, 0.0
     for iteration, sample_batched in enumerate(dataset):
         sources = sample_batched['render'].to(device)
         targets_script = sample_batched['target_corpus'].to(device)
@@ -165,10 +223,6 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
             predicted_numbers = model.forward_Numbers_Decoder(None, enc_img, targets_script)
         else:
             predicted_numbers = model.forward_Numbers_Decoder(targets_numbers[:, :-1], enc_img, targets_script[:, :-1], model.generate_square_subsequent_mask(len(targets_numbers[:, :-1])).to(device))
-
-        acc_script, acc_nbrs = compute_accuracy(predicted_script, predicted_numbers, targets_script, targets_numbers)
-        mean_acc_script += acc_script
-        mean_acc_nbrs += acc_nbrs
         
         output_dim_script = predicted_script.shape[-1]
         output_dim_numbers = predicted_numbers.shape[-1]
@@ -200,18 +254,11 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
     validation_loss_script /= len(dataset)
     validation_loss_numbers /= len(dataset)
 
-    mean_acc_script /= len(dataset)
-    mean_acc_nbrs /= len(dataset)
-
-    print("Accuracy (script): {:.4f}".format(mean_acc_script))
-    print("Accuracy (numbers): {:.4f}".format(mean_acc_nbrs))
     print("Loss (script): {:.2f}".format(validation_loss_script))
     print("Loss (numbers): {:.2f}".format(validation_loss_numbers))
 
     write_scalar(out_val_script_path, writer, global_step, validation_loss_script)
     write_scalar(out_val_numbers_path, writer, global_step, validation_loss_numbers)
-    write_scalar(out_acc_script_path, writer, global_step, mean_acc_script)
-    write_scalar(out_acc_nbrs_path, writer, global_step, mean_acc_nbrs)
 
 def evaluate(model, dataset, device, encoding_file, output_folder):
     data = DataLoader(dataset, 1, True)
@@ -254,8 +301,8 @@ if __name__ == "__main__":
     out_training_numbers_path = "train_nbrs.csv"
     out_val_script_path = "val_script.csv"
     out_val_numbers_path = "val_nbrs.csv"
-    out_val_acc_script_path = "val_acc_script.csv"
-    out_val_acc_nbrs_path = "val_acc_nbrs.csv"
+    out_acc_script_path = "acc_script.csv"
+    out_acc_nbrs_path = "acc_nbrs.csv"
     
     with open(out_training_script_path, 'w+') as train_script:
         train_script.write("Step,Loss\n")
@@ -265,10 +312,10 @@ if __name__ == "__main__":
         val_script.write("Step,Loss\n")
     with open(out_val_numbers_path, 'w+') as val_nbrs:
         val_nbrs.write("Step,Loss\n")
-    with open(out_val_acc_script_path, 'w+') as val_acc_scr:
-        val_acc_scr.write("Step,Loss\n")
-    with open(out_val_acc_nbrs_path, 'w+') as val_acc_nbrs:
-        val_acc_nbrs.write("Step,Loss\n")
+    with open(out_acc_script_path, 'w+') as acc_scr:
+        acc_scr.write("Step,Loss\n")
+    with open(out_acc_nbrs_path, 'w+') as acc_nbrs:
+        acc_nbrs.write("Step,Loss\n")
 
     if not os.path.exists(model_folder):
         os.makedirs(model_folder)
@@ -399,7 +446,10 @@ if __name__ == "__main__":
             #    break
             
         print('Validating...')
-        validate_model(model, test_data, device, global_step, writer, out_val_script_path, out_val_numbers_path, out_val_acc_script_path, out_val_acc_nbrs_path)
+        validate_model(model, test_data, device, global_step, writer, out_val_script_path, out_val_numbers_path)
+        mean_acc_script, mean_acc_nbrs = compute_model_accuracy(model, dataset_test, encoding_file, device)
+        write_scalar(out_acc_script_path, writer, global_step, mean_acc_script)
+        write_scalar(out_acc_nbrs_path, writer, global_step, mean_acc_nbrs)
         save_checkpoint(model, "SkriptGen-Ep" + str(e), model_folder, 0, True)
 
         print('Evaluating...')
