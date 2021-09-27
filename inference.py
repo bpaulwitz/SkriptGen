@@ -14,8 +14,6 @@ from word_tokens import token_EOS
 def testModel(model, data, device, encoding_file, output_folder):
     encoder, max_length_encoding, max_length_numbers = st.load_sentence_encoding(encoding_file)
     decoder = st.decoding_from_encoding(encoder)
-    accuracies = []
-    numbers_accuracy_epsilon = 0.01
     for iteration, (sample_batched) in enumerate(data):
         image = sample_batched['render'].to(device)
         # get targets (as python lists) to compare with the output
@@ -29,7 +27,6 @@ def testModel(model, data, device, encoding_file, output_folder):
         output_indices_corpus = [int(encoder[st.token_SOS])]
         output_indices_numbers = [0]
         print("decoding script")
-        script_accuracy = 0
         for i in range(max_length_encoding):
 
             trg_tensor = torch.LongTensor(output_indices_corpus).unsqueeze(0).to(device)
@@ -49,20 +46,12 @@ def testModel(model, data, device, encoding_file, output_folder):
 
             output_indices_corpus.append(prediction)
 
-
-            if prediction == ground_truth:
-                script_accuracy += 1
-
             if prediction == encoder[token_EOS]:
                 break
-        
-        script_accuracy /= len(output_indices_corpus)
-        print("Script accuracy: {:.4f}".format(script_accuracy))
 
         # create tensor from output_indices_corpus list
         corpus_output = torch.Tensor(output_indices_corpus)[None, ...].to(device)
         print("decoding numbers")
-        numbers_accuracy = 0
         if model.numbers_mlp:
             with torch.no_grad():
                 output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output)
@@ -76,9 +65,6 @@ def testModel(model, data, device, encoding_file, output_folder):
                 else:
                     ground_truth = 0.0
                 print("{:.2f}% -> Prediction:\t{:.3f}\tGroundtruth:\t{:.4f}\tAbs:\t{:.4f}".format(i / len(output_indices_numbers) * 100, pred, ground_truth, abs(pred - ground_truth)))
-
-                if abs(pred - ground_truth) <= numbers_accuracy_epsilon:
-                    numbers_accuracy += 1
         else:
             for j in range(max_length_numbers):
 
@@ -118,30 +104,11 @@ def testModel(model, data, device, encoding_file, output_folder):
 
                 output_indices_numbers.append(prediction)
 
-                if abs(prediction - ground_truth) <= numbers_accuracy_epsilon:
-                    numbers_accuracy += 1
-            
-        numbers_accuracy /= max_length_numbers
-        print("Numbers accuracy: {:.4f}".format(numbers_accuracy))
-        accuracies.append((script_accuracy, numbers_accuracy))
-
         with open(os.path.join(output_folder, "output_" + str(iteration) + ".py"), "w+") as out_file:
             out_file.write(st.decode_encoded_script(output_indices_corpus, output_indices_numbers, encoder))
         with open(os.path.join(output_folder, "orig_" + str(iteration) + ".py"), "w+") as out_file:
             out_file.write(st.decode_encoded_script(targets_script, targets_numbers, encoder))
         save_dataset_render(image.cpu(), os.path.join(output_folder, "input_" + str(iteration) + ".png"))
-
-    # return mean accuracy
-    mean_script_acc = 0.0
-    mean_nbrs_acc = 0.0
-    for a in accuracies:
-        mean_script_acc += a[0]
-        mean_nbrs_acc += a[1]
-    mean_script_acc /= len(accuracies)
-    mean_nbrs_acc /= len(accuracies)
-        
-    print("Accuracy script: {:.4f}\tAccuracy numbers: {:.4f}".format(mean_script_acc, mean_nbrs_acc))
-    return (mean_script_acc, mean_nbrs_acc)
 
 if __name__ == "__main__":
     device = torch.device('cuda')

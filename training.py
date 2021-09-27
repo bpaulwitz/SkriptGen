@@ -105,8 +105,47 @@ def plot_grad_flow_h(named_parameters, save_as = None, title = None, file_format
         plt.savefig(save_as, format=file_format)
     plt.close()
 
+def compute_accuracy(pred_script, pred_nbrs, gt_script, gt_nbrs, numbers_epsilon = 0.01):
+    pred_script = torch.argmax(pred_script, dim=2)
+    gt_script = gt_script[:, 1:]
+    amount_samples = pred_script.shape[0]
+    len_script = pred_script.shape[1]
+    len_nbrs = min(pred_nbrs.shape[1], gt_nbrs.shape[1])
+    
+    mean_acc_script, mean_acc_nbrs = 0.0, 0.0
+    for i in range(amount_samples):
+        acc_script = 0
+        acc_nbrs = 0
 
-def validate_model(model, dataset, device, global_step, writer, out_val_script_path, out_val_numbers_path):
+        curr_pred_script = pred_script[i]
+        curr_gt_script = gt_script[i]
+
+        curr_pred_nbrs = pred_nbrs[i]
+        curr_gt_nbrs = gt_nbrs[i]
+
+        for j in range(len_script):
+            if curr_pred_script[j].item() == curr_gt_script[j].item():
+                acc_script += 1
+        
+        for k in range(len_nbrs):
+            if abs(curr_pred_nbrs[k].item() - curr_gt_nbrs[k].item()) <= numbers_epsilon:
+                acc_nbrs += 1
+
+        for l in range(abs(pred_nbrs.shape[1] - gt_nbrs.shape[1])):
+            if abs(curr_pred_nbrs[len_nbrs + l].item()) <= numbers_epsilon:
+                acc_nbrs += 1
+
+        acc_script /= len_script
+        acc_nbrs /= len_nbrs + abs(pred_nbrs.shape[1] - gt_nbrs.shape[1])
+
+        mean_acc_script += acc_script
+        mean_acc_nbrs += acc_nbrs
+    
+    mean_acc_script /= amount_samples
+    mean_acc_nbrs /= amount_samples
+    return mean_acc_script, mean_acc_nbrs
+
+def validate_model(model, dataset, device, global_step, writer, out_val_script_path, out_val_numbers_path, out_acc_script_path, out_acc_nbrs_path):
     model.eval()
     validation_loss_script = 0.0
     validation_loss_numbers = 0.0
@@ -114,6 +153,7 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
     loss_fn_corpus = nn.CrossEntropyLoss()
     loss_fn_numbers = nn.MSELoss()
 
+    mean_acc_script, mean_acc_nbrs = 0.0, 0.0
     for iteration, sample_batched in enumerate(dataset):
         sources = sample_batched['render'].to(device)
         targets_script = sample_batched['target_corpus'].to(device)
@@ -126,6 +166,10 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
         else:
             predicted_numbers = model.forward_Numbers_Decoder(targets_numbers[:, :-1], enc_img, targets_script[:, :-1], model.generate_square_subsequent_mask(len(targets_numbers[:, :-1])).to(device))
 
+        acc_script, acc_nbrs = compute_accuracy(predicted_script, predicted_numbers, targets_script, targets_numbers)
+        mean_acc_script += acc_script
+        mean_acc_nbrs += acc_nbrs
+        
         output_dim_script = predicted_script.shape[-1]
         output_dim_numbers = predicted_numbers.shape[-1]
         
@@ -156,9 +200,18 @@ def validate_model(model, dataset, device, global_step, writer, out_val_script_p
     validation_loss_script /= len(dataset)
     validation_loss_numbers /= len(dataset)
 
+    mean_acc_script /= len(dataset)
+    mean_acc_nbrs /= len(dataset)
+
+    print("Accuracy (script): {:.4f}".format(mean_acc_script))
+    print("Accuracy (numbers): {:.4f}".format(mean_acc_nbrs))
+    print("Loss (script): {:.2f}".format(validation_loss_script))
+    print("Loss (numbers): {:.2f}".format(validation_loss_numbers))
+
     write_scalar(out_val_script_path, writer, global_step, validation_loss_script)
     write_scalar(out_val_numbers_path, writer, global_step, validation_loss_numbers)
-    print(validation_loss_script, validation_loss_numbers)
+    write_scalar(out_acc_script_path, writer, global_step, mean_acc_script)
+    write_scalar(out_acc_nbrs_path, writer, global_step, mean_acc_nbrs)
 
 def evaluate(model, dataset, device, encoding_file, output_folder):
     data = DataLoader(dataset, 1, True)
@@ -201,8 +254,8 @@ if __name__ == "__main__":
     out_training_numbers_path = "train_nbrs.csv"
     out_val_script_path = "val_script.csv"
     out_val_numbers_path = "val_nbrs.csv"
-    out_val_accs_script_path = "val_acc_script.csv"
-    out_val_accs_nbrs_path = "val_acc_nbrs.csv"
+    out_val_acc_script_path = "val_acc_script.csv"
+    out_val_acc_nbrs_path = "val_acc_nbrs.csv"
     
     with open(out_training_script_path, 'w+') as train_script:
         train_script.write("Step,Loss\n")
@@ -212,10 +265,10 @@ if __name__ == "__main__":
         val_script.write("Step,Loss\n")
     with open(out_val_numbers_path, 'w+') as val_nbrs:
         val_nbrs.write("Step,Loss\n")
-    with open(out_val_accs_script_path, 'w+') as val_accs_scr:
-        val_accs_scr.write("Step,Loss\n")
-    with open(out_val_accs_nbrs_path, 'w+') as val_accs_nbrs:
-        val_accs_nbrs.write("Step,Loss\n")
+    with open(out_val_acc_script_path, 'w+') as val_acc_scr:
+        val_acc_scr.write("Step,Loss\n")
+    with open(out_val_acc_nbrs_path, 'w+') as val_acc_nbrs:
+        val_acc_nbrs.write("Step,Loss\n")
 
     if not os.path.exists(model_folder):
         os.makedirs(model_folder)
@@ -346,10 +399,8 @@ if __name__ == "__main__":
             #    break
             
         print('Validating...')
-        validate_model(model, test_data, device, global_step, writer, out_val_script_path, out_val_numbers_path)
+        validate_model(model, test_data, device, global_step, writer, out_val_script_path, out_val_numbers_path, out_val_acc_script_path, out_val_acc_nbrs_path)
         save_checkpoint(model, "SkriptGen-Ep" + str(e), model_folder, 0, True)
 
         print('Evaluating...')
-        acc_script, acc_nbrs = evaluate(model, dataset_eval, device, encoding_file, './evaluate/epoch-{}'.format(e))
-        write_scalar(out_val_accs_script_path, writer, global_step, acc_script)
-        write_scalar(out_val_accs_nbrs_path, writer, global_step, acc_nbrs)
+        evaluate(model, dataset_eval, device, encoding_file, './evaluate/epoch-{}'.format(e))
