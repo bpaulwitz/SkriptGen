@@ -1,4 +1,5 @@
 import math
+from typing import Tuple
 from numpy.lib.type_check import imag
 import torch
 import numpy as np
@@ -395,4 +396,49 @@ class SkriptGen(nn.Module):
 
         return encoded_script, script_floats
 
-    def compute_accuracy(self, image: Tensor, target_script: Tensor, target_numbers: Tensor) -> 
+    def compute_accuracy(self, image: Tensor, target_script: Tensor, target_numbers: Tensor, epsilon: float = 0.01) -> Tuple:
+        encoded_image = self.encoder(image)
+        encoded_image = self.fc(encoded_image)
+
+        script_true = 0
+        script_false = 0
+        numbers_true = 0
+        numbers_false = 0
+
+        for i in range(1, target_script.shape[0]):
+            in_script = target_script[:-target_script.shape[0] + i].to(self.device)[None, ...]
+
+            output = self.corpus_decoder(in_script, encoded_image, target_mask=self.generate_square_subsequent_mask(len(in_script)).to(self.device))
+            prediction = output.argmax(2)[:,-1].item()
+
+            if prediction == target_script[-target_script.shape[0] + i + 1].to(self.device):
+                script_true += 1
+            else:
+                script_false += 1
+
+        target_script = target_script[None, ...]
+        if self.numbers_mlp:
+            output = self.forward_Numbers_Decoder(None, encoded_image, target_script)
+
+            output_indices_numbers = output.tolist()[0]
+
+            for i in range(target_numbers.shape[0]):
+                pred = output_indices_numbers[i]
+
+                if abs(pred - target_numbers[i].item()) <= epsilon:
+                    numbers_true += 1
+                else:
+                    numbers_false += 1
+        else:
+            for i in range(1, target_numbers.shape[0]):
+                in_nbrs = target_numbers[:-target_numbers.shape[0] + i].to(self.device)[None, ...]
+                
+                output = self.forward_Numbers_Decoder(in_nbrs, encoded_image, target_script, self.generate_square_subsequent_mask(len(in_nbrs)).to(self.device))
+                prediction = output[0,-1,0].item()
+
+                if torch.abs(prediction - target_numbers[-target_numbers.shape[0] + i + 1].to(self.device)) <= Tensor([epsilon]):
+                    numbers_true += 1
+                else:
+                    numbers_false += 1
+
+        return script_true, script_false, numbers_true, numbers_false

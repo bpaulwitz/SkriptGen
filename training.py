@@ -108,101 +108,30 @@ def plot_grad_flow_h(named_parameters, save_as = None, title = None, file_format
 
 def compute_model_accuracy(model, dataset, encoding_file, device, numbers_accuracy_epsilon = 0.01):
     data = DataLoader(dataset, 1, True)
-    encoder, max_length_encoding, max_length_numbers = st.load_sentence_encoding(encoding_file)
-    decoder = st.decoding_from_encoding(encoder)
+
+    script_true = 0
+    script_false = 0
+    numbers_true = 0
+    numbers_false = 0
+
     model.eval()
-    mean_acc_script, mean_acc_numbers = 0.0, 0.0
     for iteration, (sample_batched) in enumerate(data):
         image = sample_batched['render'].to(device)
         # get targets (as python lists) to compare with the output
-        targets_script = sample_batched['target_corpus'].to(device)[0].tolist()
-        targets_numbers = sample_batched['target_numbers'].to(device)[0].tolist()
-        iterator = 0
+        targets_script = sample_batched['target_corpus'].to(device)[0]
+        targets_numbers = sample_batched['target_numbers'].to(device)[0]
+        
         with torch.no_grad():
-            enc_src = model.forward_Image_Encoder(image)
+            s_t, s_f, n_t, n_f = model.compute_accuracy(image, targets_script, targets_numbers, numbers_accuracy_epsilon)
 
-        output_indices_corpus = [int(encoder[st.token_SOS])]
-        output_indices_numbers = [0]
-        script_accuracy = 0
-        for i in range(max_length_encoding):
-
-            trg_tensor = torch.LongTensor(output_indices_corpus).unsqueeze(0).to(device)
-            trg_mask = model.generate_square_subsequent_mask(len(trg_tensor)).to(device)
-
-            with torch.no_grad():
-                output = model.forward_Corpus_Decoder(trg_tensor, enc_src, trg_mask)
-
-            prediction = output.argmax(2)[:,-1].item()
-            iterator += 1
-            #print(output.argmax(2)[:,:])
-            if i < len(targets_script) - 1:
-                ground_truth = targets_script[i + 1]
-            else:
-                ground_truth = int(encoder[st.token_PAD])
-
-            output_indices_corpus.append(prediction)
-
-            if prediction == ground_truth:
-                script_accuracy += 1
-
-            if prediction == encoder[token_EOS]:
-                break
-
-        script_accuracy /= len(output_indices_corpus)
-        mean_acc_script += script_accuracy
-
-        # create tensor from output_indices_corpus list
-        corpus_output = torch.Tensor(output_indices_corpus)[None, ...].to(device)
-        numbers_accuracy = 0
-        if model.numbers_mlp:
-            with torch.no_grad():
-                output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output)
-                output_indices_numbers = output.tolist()[0]
-
-            for i in range(max_length_numbers):
-                pred = output_indices_numbers[i]
-
-                if i < len(targets_numbers):
-                    ground_truth = targets_numbers[i]
-                else:
-                    ground_truth = 0.0
-                if abs(pred - ground_truth) <= numbers_accuracy_epsilon:
-                    numbers_accuracy += 1
-        else:
-            for j in range(max_length_numbers):
-
-                trg_tensor = torch.LongTensor(output_indices_numbers).unsqueeze(0).to(device)
-                trg_mask = model.generate_square_subsequent_mask(len(trg_tensor)).to(device)
-
-                with torch.no_grad():
-                    #output = model.forward_Numbers_Decoder(trg_tensor, memory_enc_nbrs, trg_mask)
-                    output = model.forward_Numbers_Decoder(trg_tensor, enc_src, corpus_output, model.generate_square_subsequent_mask(len(trg_tensor)).to(device))
-
-                prediction = output[0,-1,0].item()
-                iterator += 1
-                if j < len(targets_numbers) - 1:
-                    ground_truth = targets_numbers[j + 1]
-                else:
-                    ground_truth = 0.0
-
-                if abs(prediction - ground_truth) <= numbers_accuracy_epsilon:
-                    numbers_accuracy += 1
-
-                output_indices_numbers.append(prediction)
-
-        numbers_accuracy /= max_length_numbers
-        mean_acc_numbers += numbers_accuracy
+        script_true += s_t
+        script_false += s_f
+        numbers_true += n_t
+        numbers_false += n_f
 
         print("{:.2f}%".format(iteration / len(dataset) * 100))
 
-    mean_acc_script /= len(dataset)
-    mean_acc_numbers /= len(dataset)
-
-    print("Accuracy (script): {:.4f}".format(mean_acc_script))
-    print("Accuracy (numbers): {:.4f}".format(mean_acc_numbers))
-
-
-    return mean_acc_script, mean_acc_numbers
+    return script_true / (script_true + script_false), numbers_true / (numbers_true + numbers_false)
 
 def validate_model(model, dataset, device, global_step, writer, out_val_script_path, out_val_numbers_path):
     model.eval()
@@ -447,6 +376,7 @@ if __name__ == "__main__":
             
         print('Validating...')
         validate_model(model, test_data, device, global_step, writer, out_val_script_path, out_val_numbers_path)
+        print('Computing accuracy...')
         mean_acc_script, mean_acc_nbrs = compute_model_accuracy(model, dataset_test, encoding_file, device)
         write_scalar(out_acc_script_path, writer, global_step, mean_acc_script)
         write_scalar(out_acc_nbrs_path, writer, global_step, mean_acc_nbrs)
