@@ -394,3 +394,5 @@ class SkriptGen(nn.Module):
 
 
         return encoded_script, script_floats
+
+    def compute_accuracy(self, image: Tensor, target_script: Tensor, target_numbers: Tensor) -> 

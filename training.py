@@ -358,10 +358,10 @@ if __name__ == "__main__":
         encoding = dataset_train.encoding, 
         max_len_encoding = dataset_train.max_len_encoding, 
         max_len_floats = dataset_train.max_len_floats,
-        hidden_size = 512,
+        hidden_size = 256,
         pretrained_resnet = False,
         fixed_pe = False,
-        numbers_mlp = True,
+        numbers_mlp = False,
         device = device,
         )
     print("amount of parameters:", sum(p.numel() for p in model.parameters() if p.requires_grad))
