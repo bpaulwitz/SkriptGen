@@ -63,7 +63,7 @@ class ToTensor(object):
         return {'render': torch.from_numpy(render), 'target_corpus': torch.from_numpy(target_corpus).long(), 'target_numbers': torch.from_numpy(target_numbers).float()}
 
 class Dataset_ScriptGen(Dataset):
-    def __init__(self, csv_file: str, data_root: str, encoding = None, max_len_encoding: int = None, max_len_floats: int = None, transform: transforms.Compose = None) -> None:
+    def __init__(self, csv_file: str, data_root: str, encoding = None, max_len_encoding: int = None, max_len_floats: int = None, transform: transforms.Compose = None, file_ending = '.py') -> None:
         """
         Constructor
         @param csv_file: path to the csv-file. It has to have the file names of the renders in it's first column and the file names of the scripts in it's second column
@@ -72,6 +72,7 @@ class Dataset_ScriptGen(Dataset):
         @param max_len_encoding: maximum length of the encoded script
         @param max_len_floats: maximum length of the floating point list for the encoded script
         @param transform: transformations of the sample. Is a torchvision.transforms.Compose object
+        @param file_ending: filename ending of the target file (e.g. '.py' when the training targets are python scripts)
         """
         super().__init__()
 
@@ -103,7 +104,7 @@ class Dataset_ScriptGen(Dataset):
 
             # collect all filepaths of scripts
             for file in os.listdir(self.script_dir):
-                if file.endswith('.py'):
+                if file.endswith(file_ending):
                     all_scripts.append(os.path.join(self.script_dir, file))
             
             # create encoding

@@ -205,9 +205,9 @@ def cos_annealing(iteration):
 
 if __name__ == "__main__":
     #csv_path = "TestData/dataset.csv"
-    #dataset_train_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Train"
-    #dataset_test_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Test"
-    #dataset_eval_path = "/home/baldur/Dataset/ShapeNet/HouseDataset2_Polygen/Test"
+    #dataset_train_path = "/home/baldur/Dataset/ShapeNet/Dataset_Polygen_normalized/Train"
+    #dataset_test_path = "/home/baldur/Dataset/ShapeNet/Dataset_Polygen_normalized/Test"
+    #dataset_eval_path = "/home/baldur/Dataset/ShapeNet/Dataset_Polygen_normalized/Test"
     dataset_train_path = "/root/Datasets/House/Train"
     dataset_test_path = "/root/Datasets/House/Test"
     dataset_eval_path = "/root/Datasets/House/Test"
@@ -215,6 +215,7 @@ if __name__ == "__main__":
     csv_path_train = os.path.join(dataset_train_path, "dataset.csv")
     csv_path_test = os.path.join(dataset_test_path, "dataset.csv")
     csv_path_eval = os.path.join(dataset_test_path, "dataset_small.csv")
+    file_ending_script = '.py'
 
     #model_folder = os.path.join(dataset_train_path, "models")
     model_folder = "models"
@@ -255,7 +256,7 @@ if __name__ == "__main__":
     dataset_train = Dataset_ScriptGen(csv_path_train, dataset_train_path, encoding, max_len_encoding, max_len_floats, transforms.Compose([
             Rescale(256, 256),
             ToTensor()
-    ]))
+    ]), file_ending_script)
 
     encoding, max_len_encoding, max_len_floats = dataset_train.encoding, dataset_train.max_len_encoding, dataset_train.max_len_floats
 
@@ -266,17 +267,17 @@ if __name__ == "__main__":
     dataset_test = Dataset_ScriptGen(csv_path_test, dataset_test_path, encoding, max_len_encoding, max_len_floats, transforms.Compose([
             Rescale(256, 256),
             ToTensor()
-    ]))
+    ]), file_ending_script)
 
     print("Creating dataset for evaluation...")
     dataset_eval = Dataset_ScriptGen(csv_path_eval, dataset_eval_path, encoding, max_len_encoding, max_len_floats, transforms.Compose([
             Rescale(256, 256),
             ToTensor()
-    ]))
+    ]), file_ending_script)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # for testing on cpu
-    #device = 'cpu'
+    device = 'cpu'
     
     print("Using device:", device)
 
